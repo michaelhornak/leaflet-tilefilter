@@ -1,7 +1,4 @@
-/*
- @preserve Leaflet Tile Filters, a JavaScript plugin for applying image filters to tile images
- (c) 2014 - 2015, Scott Fairgrieve, HumanGeo
-*/;L.Browser.littleEndian = (function() {
+L.Browser.littleEndian = (function() {
 	var buffer = new ArrayBuffer(2);
 	new DataView(buffer).setInt16(0, 256, true);
 	return new Int16Array(buffer)[0] === 256;
@@ -101,7 +98,7 @@ L.Color = L.Class.extend({
             rgbString = "rgba(" + this._rgb[0].toFixed(0) + "," + this._rgb[1].toFixed(0) + "," + this._rgb[2].toFixed(0) + "," + this._a.toFixed(1) + ")";
         } else {
             var parts = [ this._rgb[0].toString(16), this._rgb[1].toString(16), this._rgb[2].toString(16) ];
-            for (var i = 0; i < parts.length; ++i) {
+            for (var i = 0, len = parts.length; i < len; ++i) {
                 if (parts[i].length === 1) {
                     parts[i] = "0" + parts[i];
                 }
@@ -160,7 +157,7 @@ L.Color32 = L.Class.extend({
         TWO_THIRDS: 2/3,
         HALF: 1/2
     },
-	initialize: function (color) {
+	initialize: function (color, setHSL) {
 		if (L.Browser.littleEndian) {
 	    	this._r = (color >> 0) & 0xff;
 	    	this._g = (color >> 8) & 0xff;
@@ -173,47 +170,50 @@ L.Color32 = L.Class.extend({
 			this._b = (color >> 8) & 0xff;
 			this._a = (color >> 0) & 0xff;
 		}
-        this.rgb2hsl();
+
+        if (setHSL) {
+            this.rgb2hsl();
+        }
 	},
-	r: function (r) {
+	r: function (r, setHSL) {
 		if (!arguments.length) return this._r;
 		this._r = Math.min(r, 255);
-        this.rgb2hsl();
+        if (setHSL) { this.rgb2hsl();}
         return this;
 	},
-	g: function (g) {
+	g: function (g, setHSL) {
 		if (!arguments.length) return this._g;
 		this._g = Math.min(g, 255);
-        this.rgb2hsl();
+        if (setHSL) { this.rgb2hsl();}
         return this;
 	},
-	b: function (b) {
+	b: function (b, setHSL) {
 		if (!arguments.length) return this._b;
 		this._b = Math.min(b, 255);
-        this.rgb2hsl();
+        if (setHSL) { this.rgb2hsl();}
         return this;
 	},
-	a: function (a) {
+	a: function (a, setRGB) {
 		if (!arguments.length) return this._a;
 		this._a = Math.min(a, 255);
         return this;
 	},
-    h: function(newH) {
+    h: function(newH, setRGB) {
         if (!arguments.length) return this._h;
         this._h = newH;
-        this.hsl2rgb();
+        if (setRGB) { this.hsl2rgb();}
         return this;
     },
-    s: function(newS) {
+    s: function(newS, setRGB) {
         if (!arguments.length) return this._s;
         this._s = newS;
-        this.hsl2rgb();
+        if (setRGB) { this.hsl2rgb();}
         return this;
     },
-    l: function(newL) {
+    l: function(newL, setRGB) {
         if (!arguments.length) return this._l;
         this._l = newL;
-        this.hsl2rgb();
+        if (setRGB) { this.hsl2rgb();}
         return this;
     },
     hue2rgb: function (p, q, t) {
@@ -257,6 +257,20 @@ L.Color32 = L.Class.extend({
         this._h = h;
         this._s = s;
         this._l = l;
+    },
+    setHSL: function(h, s, l) {
+        this._h = h;
+        this._s = s;
+        this._l = l;
+        this.hsl2rgb();
+        return this;
+    },
+    setRGB: function (r, g, b, setHSL) {
+        this._r = r;
+        this._g = g;
+        this._b = b;
+        if (setHSL) { this.rgb2hsl(); }
+        return this;
     },
     hsl2rgb: function () {
         var r, g, b;
@@ -333,7 +347,7 @@ L.ImageFilter = L.Class.extend({
     initialize: function(options) {
         L.Util.setOptions(this, options);
     },
-    render: function(image) {
+    render: function(element, image, ctx) {
         return this;
     }
 });
@@ -346,7 +360,7 @@ L.CanvasFilter = L.ImageFilter.extend({
     	// manipulate by applying filters
         var canvas;
         var m = L.Browser.retina ? 2 : 1;
-        var size = image._layer.options.tileSize * m; //Math.min(image._layer.options.tileSize * m, 256);
+        var size = image.options.tileSize * m; //Math.min(image._layer.options.tileSize * m, 256);
         var hasContext = true;
         
         if (!ctx) {//image.canvasContext) {
@@ -369,8 +383,8 @@ L.CanvasFilter = L.ImageFilter.extend({
             if (!hasContext) {
 	            image.onload = null;
 	            image.removeAttribute("crossorigin");
-	            if (element._layer.options.canvasFilter) {
-	                element._layer.options.canvasFilter.call(image, ctx);
+	            if (image.options.canvasFilter) {
+	                image.options.canvasFilter.call(this, image, ctx);
 	            } else {
 	                image.src = canvas.toDataURL();
 	            }
@@ -462,7 +476,7 @@ L.AlphaChannelFilter = L.AlphaChannelFilter.extend({
         renderMode: L.AlphaChannelFilter.RENDER_MODE_PIXEL
     },
     initialize: function(options) {
-        L.Util.setOptions(this, options);
+        L.setOptions(this, options);
     },
     setOpacity: function(opacity) {
         this.options.opacity = opacity;
@@ -498,14 +512,14 @@ L.CanvasChannelFilter = L.AlphaChannelFilter.extend({
     updateChannels: function(channels) {
     	channels = L.AlphaChannelFilter.prototype.updateChannels.call(this, channels);
         var filters = this.options.filters;
-        for (var i = 0; i < filters.length; ++i) {
+        for (var i = 0, len = filters.length; i < len; ++i) {
             channels = filters[i].updateChannels(channels);
         }
         return channels;
     },
     updatePixel: function (pixel) {
     	var filters = this.options.filters;
-        for (var i = 0; i < filters.length; ++i) {
+        for (var i = 0, len = filters.length; i < len; ++i) {
             pixel = filters[i].updatePixel(pixel);
         }
         return pixel;
@@ -514,7 +528,7 @@ L.CanvasChannelFilter = L.AlphaChannelFilter.extend({
 
 L.ChannelFilter = L.Class.extend({
 	initialize: function (options) {
-		L.Util.setOptions(this, options);
+		L.setOptions(this, options);
         this._keys = ['r', 'g', 'b', 'a'];
 	},
 	
@@ -550,9 +564,9 @@ L.ChannelFilters.Grayscale = L.ChannelFilter.extend({
     updatePixel: function (pixel) {
     	var color = new L.Color32(pixel);
     	var channelWeights = this.options.channelWeights;
-    	var avg = (channelWeights[0] * color.r() + channelWeights[1] * color.g() + channelWeights[2] * color.b()) / this._summedWeight;
+    	var avg = (channelWeights[0] * color._r + channelWeights[1] * color._g + channelWeights[2] * color._b) / this._summedWeight;
     	
-    	color.r(avg).g(avg).b(avg);
+    	color.setRGB(avg, avg, avg);
 
         return color.toInt();
     }
@@ -574,10 +588,10 @@ L.ChannelFilters.Threshold = L.ChannelFilters.Grayscale.extend({
     },
     updatePixel: function (pixel) {
     	var color = new L.Color32(pixel);
-
-        for (var i = 0; i < this._keys.length; ++i) {
-            color[this._keys[i]](color[this._keys[i]]() >= this.options.thresholds[i] ? this.options.trueValues[i] : this.options.falseValues[i]);
-        }
+        color.setRGB(color._r >= this.options.thresholds[0] ? this.options.trueValues[0] : this.options.falseValues[0], color._g >= this.options.thresholds[1] ? this.options.trueValues[1] : this.options.falseValues[1], color._b >= this.options.thresholds[2] ? this.options.trueValues[2] : this.options.falseValues[2]);
+        //for (var i = 0, len = this._keys.length; i < len; ++i) {
+        //    color[this._keys[i]](color[this._keys[i]]() >= this.options.thresholds[i] ? this.options.trueValues[i] : this.options.falseValues[i]);
+       // }
 
     	return color.toInt();
     }
@@ -590,7 +604,7 @@ L.ChannelFilters.Contrast = L.ChannelFilter.extend({
             return 255 * (255 + contrast) / (255 * (255 - contrast));
         }
     },
-    initialize: function(imageData, options) {
+    initialize: function(options) {
         L.ChannelFilter.prototype.initialize.call(this, options);
         this._factor = this.options.factor.call(this, this.options.contrast);
     },
@@ -604,6 +618,7 @@ L.ChannelFilters.Contrast = L.ChannelFilter.extend({
     	var color = new L.Color32(pixel);
 
         for (var i = 0; i < 3; ++i) {
+            //color['_' + this._keys[i]] = Math.min(this._factor * (color['_' + this._keys[i]] - 128) + 128, 255);
             color[this._keys[i]](this._factor * (color[this._keys[i]]() - 128) + 128);
         }
     	
@@ -622,7 +637,7 @@ L.ChannelFilters.Invert = L.ChannelFilter.extend({
     	var color = new L.Color32(pixel);
 
         for (var i = 0; i < 3; ++i) {
-            color[this._keys[i]](255 - color[this._keys[i]]());
+            color['_' + this._keys[i]] = 255 - color['_' + this._keys[i]];
         }
 
     	return color.toInt();
@@ -668,12 +683,12 @@ L.ChannelFilters.Matrix = L.ChannelFilter.extend({
     updatePixel: function (pixel) {
         var matrix = this.options.matrix;
         var color = new L.Color32(pixel);
-        var r = color.r();
-        var g = color.g();
-        var b = color.b();
+        var r = color._r;
+        var g = color._g;
+        var b = color._b;
 
         for (var i = 0; i < 3; ++i) {
-            color[this._keys[i]](Math.floor(r * matrix[3 * i] + g * matrix[3 * i + 1] + b * matrix[3 * i + 2]));
+            color['_' + this._keys[i]] = Math.min(255, Math.floor(r * matrix[3 * i] + g * matrix[3 * i + 1] + b * matrix[3 * i + 2]));
         }
 
         return color.toInt();
@@ -698,7 +713,7 @@ L.ChannelFilters.Adjust = L.ChannelFilter.extend({
     },
     updatePixel: function (pixel) {
         var color = new L.Color32(pixel);
-        for (var i = 0; i < this._keys.length; ++i) {
+        for (var i = 0, len = this._keys.length; i < len; ++i) {
             color[this._keys[i]](Math.min(Math.max(color[this._keys[i]]() + this.options.adjustments[i], 0), 255));
         }
         return color.toInt();
@@ -722,11 +737,9 @@ L.ChannelFilters.HSLAdjust = L.ChannelFilter.extend({
         return channels;
     },
     updatePixel: function (pixel) {
-        var color = new L.Color32(pixel);
+        var color = new L.Color32(pixel, true);
 
-        color.h((color.h() * 360 + this.options.adjustments[0]) / 360);
-        color.s(color.s() + this.options.adjustments[1]);
-        color.l(color.l() + this.options.adjustments[2]);
+        color.setHSL((color._h * 360 + this.options.adjustments[0]) / 360, color._s + this.options.adjustments[1], color._l + this.options.adjustments[2]);
 
         if (this.options.adjustments.length > 3) {
             color.a(color.a() + this.options.adjustments[3]);
@@ -881,9 +894,9 @@ L.CSSFilter = L.ImageFilter.extend({
     statics: {
         prefixes: [ "-webkit-", "-moz-", "-ms-", "-o-", "" ]
     },
-    render: function(image) {
-        for (var i = 0; i < L.CSSFilter.prefixes.length; ++i) {
-            image.style.cssText += " " + L.CSSFilter.prefixes[i] + "filter: " + this.options.filters.join(" ") + ";";
+    render: function(element, image, ctx) {
+        for (var i = 0, len = L.CSSFilter.prefixes.length; i < len; ++i) {
+            element.style.cssText += " " + L.CSSFilter.prefixes[i] + "filter: " + this.options.filters.join(" ") + ";";
         }
     }
 });
@@ -899,13 +912,13 @@ L.CombinedFilter = L.ImageFilter.extend({
     },
     renderCanvas: function (element, image, ctx) {
     	if (this.options.canvasFilter) {
-    		this.options.canvasFilter.call(element, image, ctx);
+    		this.options.canvasFilter.call(element, element, image, ctx);
     	}
     	return this;
     },
     renderCSS: function (element, image, ctx) {
     	if (this.options.cssFilter) {
-            this.options.cssFilter.call(element, image, ctx);
+            this.options.cssFilter.call(element, element, image, ctx);
         }
     	return this;
     },
@@ -919,15 +932,15 @@ L.CombinedFilter = L.ImageFilter.extend({
 L.ImageFilters = {};
 
 L.ImageFilters.GenerateCSSFilter = function(filters) {
-    return function(image, ctx) {
+    return function(element, image, ctx) {
         return new L.CSSFilter({
             filters: filters
-        }).render(this);
+        }).render(element, image, ctx);
     };
 };
 
 L.ImageFilters.GenerateChannelFilter = function (filters) {
-	return function (imageData) { 
+	return function (imageData) {
 		return new L.CanvasChannelFilter({
 			filters: filters
 		}).render(imageData);
@@ -935,18 +948,16 @@ L.ImageFilters.GenerateChannelFilter = function (filters) {
 };
 
 L.ImageFilters.GenerateCanvasFilter = function (filters) {
-	return function (image, ctx) {
+	return function (element, image, ctx) {
 		return new L.CanvasFilter({
 			channelFilter: L.ImageFilters.GenerateChannelFilter(filters)
-		}).render(this, image, ctx);
+		}).render(element, image, ctx);
 	};
 };
 
 L.ImageFilters.Presets = {
     CSS: {
-        None: function() {
-            return this;
-        },
+        None: L.ImageFilters.GenerateCSSFilter([ "none" ]),
         Brightness200: L.ImageFilters.GenerateCSSFilter([ "brightness(200%)" ]),
         Brightness180: L.ImageFilters.GenerateCSSFilter([ "brightness(180%)" ]),
         Brightness160: L.ImageFilters.GenerateCSSFilter([ "brightness(160%)" ]),
@@ -972,6 +983,7 @@ L.ImageFilters.Presets = {
         Sepia60: L.ImageFilters.GenerateCSSFilter([ "sepia(60%)" ]),
         Sepia40: L.ImageFilters.GenerateCSSFilter([ "sepia(40%)" ]),
         Sepia20: L.ImageFilters.GenerateCSSFilter([ "sepia(20%)" ]),
+        Grayscale: L.ImageFilters.GenerateCSSFilter([ "saturate(0%)" ]),
         Saturate200: L.ImageFilters.GenerateCSSFilter([ "saturate(200%)" ]),
         Saturate300: L.ImageFilters.GenerateCSSFilter([ "saturate(300%)" ]),
         Saturate400: L.ImageFilters.GenerateCSSFilter([ "saturate(400%)" ]),
@@ -1054,13 +1066,16 @@ L.ImageFilters.Presets = {
 			channel: 2,
 			values: [0, 0]
 		})]),
-		Convolve: function (image, ctx) { 
+		Convolve: function (element, image, ctx) {
 			return new L.CanvasFilter({
 				channelFilter: function (imageData, ctx) {
 					return new L.ConvolveFilter({}).render(imageData, ctx);
 				}
-			}).render(this, image, ctx);
+			}).render(element, image, ctx);
 		},
+        HighContrast: L.ImageFilters.GenerateCanvasFilter([new L.ChannelFilters.Contrast({
+            contrast: 128
+        })]),
 		Threshold: L.ImageFilters.GenerateCanvasFilter([new L.ChannelFilters.Threshold()]),
 		WaterTransparent: L.ImageFilters.GenerateCanvasFilter([new L.ChannelFilters.ColorSwap({
 			input: {
@@ -1091,96 +1106,128 @@ L.ImageFilters.Presets = {
 L.ImageFilterFunctions = {
     __loadTile: L.TileLayer.prototype._loadTile,
     __tileOnLoad: L.TileLayer.prototype._tileOnLoad,
+    __update: L.TileLayer.prototype._update,
     setFilter: function(filter) {
         this.options.filter = filter;
-        for (var key in this._tiles) {
-            var xyParts = key.split(':');
-            var tilePoint = new L.Point(Number(xyParts[0]), Number(xyParts[1]));
-
-            this._loadTile(this._tiles[key], tilePoint);
-        }
+        this.redraw();
         return this;
+    },
+    setCSSFilter: function (filter) {
+        this._cssChanged = true;
+        this.options.cssFilter = filter;
+        this._applyCSSFilter();
+        return this;
+    },
+    _applyCSSFilter: function () {
+        if (this._container && this._cssChanged) {
+            this._container.cssText = "";
+
+            if (this.options.cssFilter) {
+                this.options.cssFilter.call(this, this._container);
+            }
+
+            this._cssChanged = false;
+        }
+    },
+    _update: function () {
+        this.__update.call(this);
+
+        this._applyCSSFilter();
     },
     clearFilter: function() {
         this.options.filter = null;
         return this.redraw();
     },
-    _tileOnLoad: function() {
-        var filter = this._layer.options.filter;
-        if (filter) {
-            filter.call(this, this);
-        }
-        this._layer.__tileOnLoad.call(this);
+    clearCSSFilter: function () {
+        this.setCSSFilter(null);
     },
-    _loadTile: function(tile, tilePoint) {
-        tile.setAttribute("crossorigin", "anonymous");
-        this.__loadTile.call(this, tile, tilePoint);
+    clearAllFilters: function () {
+        this.options.filter = null;
+        this.options.cssFilter = null;
+        this._cssChanged = true;
+        this.redraw();
+    },
+    _tileOnLoad: function(done, tile) {
+        var filter = this.options.filter;
+        tile.options = this.options;
+        if (filter) {
+            filter.call(this, tile, tile);
+        }
+        this.__tileOnLoad.call(this, done, tile);
     }
 };
 
 L.TileLayer.include(L.ImageFilterFunctions);
+L.TileLayer.addInitHook(function () {
+    this.options.crossOrigin = true;
+});
 
 /**
  * Displays TMS tile images using canvas rather than image elements
  */
-L.TileLayer.CanvasTMS = L.TileLayer.Canvas.extend({
-	options: {
-		tileSize: 256,
-        reuseTiles: true
-	},
-	initialize: function (url, options) {
-		L.TileLayer.prototype.initialize.call(this, url, options);
-	},
-	_tileOnLoad: function () {
-		this._layer.__tileOnLoad.call(this);
-	},
-    _applyFilter: function (tile, img, ctx) {
-        setTimeout(this._async(tile, img, ctx), 0);
-    },
-    _async: function (tile, img, ctx) {
-        return function () {
-            try {
-                var filter = tile._layer.options.filter || function (data) {
-                    return data;
-                };
+L.TileLayer.CanvasTMS = L.TileLayer.extend({
+  options: {
+    tileSize: 256,
+        reuseTiles: true,
+		gray: true
+  },
+  initialize: function (url, options) {
+    L.TileLayer.prototype.initialize.call(this, url, options);
+  },
+   
+    createTile: function (coords, done) {
+        var tile = L.DomUtil.create('canvas', 'leaflet-tile');
+        tile.width = tile.height = this.options.tileSize;
+        tile.onselectstart = tile.onmousemove = L.Util.falseFn;
 
-                img._layer = tile._layer;
-                filter.call(tile, img, ctx);
-            }
-            finally {
-                tile._layer.tileDrawn(tile);
-            }
-        };
-    },
-	_loadTile: function (tile, tilePoint) {
         var me = this;
 
-		tile._layer  = this;
+        tile.options = this.options;
+        tile._layer  = this;
 
-		this._adjustTilePoint(tilePoint);
-		
-		var ctx = tile.getContext('2d');
-		var scale = 1;
+        //this._adjustTilePoint(tilePoint);
 
-		if (L.Browser.retina && this.options.detectRetina) {
-			scale = 2;
-			tile.width = tile.height = tile._layer.options.tileSize * scale;
-			tile.style.width = tile.style.height = tile._layer.options.tileSize + 'px';
-		}
+        var ctx = tile.getContext('2d');
+        var scale = 1;
+
+        if (L.Browser.retina && this.options.detectRetina) {
+            scale = 2;
+            tile.width = tile.height = tile.options.tileSize * scale;
+            tile.style.width = tile.style.height = tile.options.tileSize + 'px';
+        }
 
         if (!tile._img) {
             var img = new Image();
 
             img.onload = function () {
+                //setTimeout(done, 0);
+                done();
                 tile._img = img;
-                me._applyFilter(tile, img, ctx);
+                tile._img.options = me.options;
+				if (this.options.gray) {
+					this.onload  = null; // to prevent an infinite loop
+					ctx.drawImage(this, 0, 0);
+					var imgd = ctx.getImageData(0, 0, tile.height, tile.height);
+					var pix = imgd.data;
+					for (var i = 0, n = pix.length; i < n; i += 4) {
+						pix[i] = pix[i + 1] = pix[i + 2] = (3 * pix[i] + 4 * pix[i + 1] + pix[i + 2]) / 8;
+					}
+					ctx.putImageData(imgd, 0, 0);
+					this.removeAttribute("crossorigin");
+					this.src = ctx.canvas.toDataURL();
+				}
+                
             };
 
             img.crossOrigin = 'anonymous';
-            img.src = me.getTileUrl(tilePoint);
+            img.src = me.getTileUrl(coords);
+
         }
         else {
-            me._applyFilter(tile, tile._img, ctx);
+            tile._img.options = me.options;
+          
         }
-	}
+
+        return tile;
+    }
 });
